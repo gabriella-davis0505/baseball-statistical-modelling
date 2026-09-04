@@ -1,0 +1,430 @@
+---
+title: "map501 Coursework"
+output:
+  html_document:
+    toc: true
+    toc_depth: '2'
+    df_print: paged
+  html_notebook:
+    toc: true
+    toc_depth: 2
+---
+```{r}
+knitr::opts_chunk$set(
+ results = "hold", echo = TRUE, eval = TRUE,
+ message = FALSE, fig.width = 7,
+ fig.height = 4, fig.align = "center"
+)
+```
+
+# Preamble
+
+```{r}
+# install.packages("tidyverse")
+# install.packages("magrittr")
+# install.packages("here")
+# install.packages("janitor")
+# install.packages("gridExtra")
+# install.packages("readxl")
+# install.packages("Lahman")
+# install.packages("viridis")
+# install.packages("lindia")
+# install.packages("lme4")
+# install.packages("caret")
+# install.packages("pROC")
+# install.packages("car")
+# install.packages("dplyr")
+# install.packages("sandwich")
+
+library("sandwich")
+library("broom")
+library("ggplot2")
+library("dplyr")
+library("tidyverse")
+library("magrittr")
+library("janitor")
+library("gridExtra")
+library("readxl")
+library("Lahman")
+library("viridis")
+library("lindia")
+library("lme4")
+library("caret")
+library("pROC")
+library("car")
+```
+# Question 1- Linear Regression
+
+Part A- Starting with the data set Managers create a new data set, "df_managers" that contains variables win_pct, playerID, teamID, yearID, lgID, plyrMgr.
+```{r} 
+# Create the df_managers dataset
+df_managers <- Managers %>%
+  mutate(win_pct = W / (W + L)) %>%  # Calculate win percentage
+  select(playerID, teamID, yearID, lgID, plyrMgr, win_pct)  # Select required variables
+```
+Part B
+```{r}
+# Step i: Create df_teams from the Teams dataset
+df_teams <- Teams %>%
+  select(yearID, teamID, DivWin, CS)
+
+# Step ii: Add variables from df_teams to df_managers to create man_teams
+man_teams <- df_managers %>%
+  left_join(df_teams, by = c("yearID", "teamID")) %>%
+  select(-lgID)  # Remove lgID
+
+# Step iii: Add all columns from man_teams to AwardsShareManagers to create awards_man
+
+#Find out which are the common variales that can be used to merge the dataset
+names(man_teams)
+names(AwardsShareManagers)
+
+common_vars <- intersect(names(man_teams), names(AwardsShareManagers))
+print(common_vars)
+
+#Select the common variables before merging 
+man_teams_selected <- man_teams %>% 
+  select(playerID, yearID, teamID, plyrMgr, win_pct, DivWin, CS)
+
+#Merge the datasets using the common variables
+awards_man <- merge(AwardsShareManagers, man_teams_selected, by = c("playerID", "yearID"), all.x = TRUE)
+
+# Step iv: Create sqr_point_pct variable
+awards_man <- awards_man %>%
+  mutate(sqr_point_pct = sqrt(pointsWon / pointsMax))
+
+# Step v: Delete incomplete cases and drop unused levels of teamID
+
+# Remove incomplete cases
+awards_man <- awards_man %>% drop_na()
+
+# Check the structure of the dataset
+str(awards_man)
+
+# Drop unused levels of teamID
+awards_man$teamID <- droplevels(awards_man$teamID)
+```
+Part C- Fit a Gaussion model, spp_mod, of sqr_point_pct as a function of win_pct, DivWin, and CS. Report and Interpret the results. Write out the form of the fitted model, to 2 significant figures.
+```{r}
+# Fit the Gaussian model
+spp_mod <- lm(sqr_point_pct ~ win_pct + DivWin + CS, data = awards_man)
+# Summary of the model to report results
+summary(spp_mod)
+```
+Equation of the model:
+$$
+\begin{align}
+\mbox{mean sqr_point_pct} \sim  N( &-0.73 + 1.8\times {\rm win_pct} \\ 
+&+0.14\times{\rm DivWin} + 
+                         0.0027\times {\rm CS} \\, 0.24).
+\end{align} 
+$$ 
+The fitted linear regression model for predicting the square root of point percentage (sqr_point_pct) based on winning percentage (win_pct), division wins (DivWin), and CS demonstrate statistical significance. The overall p-value is less than 2.2e-16, therefore less than 0.05, indicating that the model is unlikely to be as a result of random chance. The overall fit of the model is moderate, as evidenced by an R-Squared value of 0.27, which suggests that approximately 27% of the variability in sqr_point_pct can be explained by the predictors in this model. However, with this only being a moderate fit it can also indicate that there may be other important variables that haven't been included in this model. The F-statistic is F(3,482) = 59.71, further supporting the models significance. Analysing the individual predictors, the coefficient for win_pct is 1.81 with a p-value of 2.77e-12, again less than 0.05, indicating a strong positive relationship with sqr_point_pct. The variable  DivWin has a coefficient of 0.14 and a p-value of 4.25e-7, again less than 0.05 so shows significance. The coefficient for CS is 0.0027 with a p-value of 1.66e-5, suggesting a small but significant positive effect on sqr_point_pct. However, it is also important to note that CS has less substantial impact on the response variable as the coefficient is alot smaller. Furthermore, the residual standard error is 0.24, which could suggest that the models predictions may not be very precise, examining the residuals for patterns could reveal issues such as non-linearity or heteroscedasticity. Overall, while the models shows statistical significance, it is important to understand that there could potentially be some issues with this model.
+
+Part D -State and evaluate the assumptions of the fitted model.
+```{r}
+#Create plots to analyse and evaluate the assumptions
+awards_man_plots <- gg_diagnose(spp_mod, plot.all = FALSE)
+plot_all(awards_man_plots[1:6])
+
+#Create Scale location plot
+ggplot(spp_mod, aes(.fitted, sqrt(.resid))) +
+  geom_point() +
+  geom_smooth(se = FALSE, color = "blue") +
+  labs(x = "Fitted Values", y = "Square Root of Standardised Residuals") +
+  ggtitle("Scale-Location Plot") +
+  theme_classic()
+```
+These plots allow us to evaluate the assumptions of the fitted model to test for normality of residuals in a linear regression model. Normality of residuals is a crucial assumption for linear regression as it ensures that the models inference and predictions are valid. The histograms shows the distribution of the residuals. An ideal normal distribution would be bell- shaped and symmetric. Here, the histogram is roughly bell shaped, indicating that the residuals are approximately normally distributed. However, there's a slight right skew, suggesting that there may be a few outliers or non-normality in the right tail of the distribution. The Residual vs win_pct plot shows no clear pattern, this suggests that the residuals are randomly distributed across different win_pct values. This is a good sign, as it indicates the model's assumptions are met with respect to the win_pct variable.The boxplots for Residual vs DivWin shows that the residuals are cantered around zero with no significant outliers. Furthermore, they both have fairly consistent IQR, this is a good indication of homoscedasticity. The Residual vs CS graph shows no clear pattern again suggesting the residuals are randomly distributed across different CS values.The Residual vs Fitted Value graph shows random spread of residuals. However, they do appear to be rather clustered. This goes against the assumption of homoscedasticity. The Normal Q-Q plot compares the quantiles of the observed residuals to the quantiles of a theoretical normal distribution. The points should fall closely along the red line to indicate they are normally distributed, in this case they do. However, there are some deviations which could be due to the presence of outliers or non-normality, but majorly it follows the line so is accepted.The scale-location plot is used to assess the assumption of homoscedasticity. This assumption states that the variance of residuals should be constant across all levels of the independent variables. In an ideal scenario, the plot would show a random scatter of points around a horizontal line. However, in this graph for this fitted model the line shows a slight curve, indicating that the variance of residuals may not be constant. This violation of the homoscedasticity assumption can lead to inaccurate interpretations. In order to address this issues transformations should be done.
+
+Part E- Predict the expected value of sqr_pct when win_pct= 0.8, DivWin = Yes, CS = 8. Comment on the result
+```{r}
+# Create a new data frame for prediction
+new_data <- data.frame(win_pct = 0.8, DivWin = factor("Y", levels = c("N", "Y")), CS = 8)
+
+# Predict the expected value of sqr_point_pct
+predicted_value <- predict(spp_mod, newdata = new_data)
+
+# Print the predicted value
+print(predicted_value)
+
+```
+The prediction indicates that when the win percentage (win_pct) is set at 0.8, the manager is a division winner (DivWin = Yes), and the CS is 8, the expected value of sqr_point_pct is 0.8765326. This suggests that a manager with these specific characteristics is anticipated to achieve a square root points percentage of around 0.88, which translates to an approximate value of 0.94 when squared. A higher sqr_point_pct reflects improved performance in terms of points won relative to the maximum possible points, implying that managers with a win percentage of 0.8, who are division winners, and have a CS of 8 are likely to be effective in their roles. However, it is crucial to understand that there were some concerns regarding the assumptions of normality, which may affect the accuracy of this prediction.
+
+Part F- Construct 95% confidence intervals around each parameter estimate for spp_modd. Comment on the results.
+```{r}
+confint(spp_mod)
+```
+The confidence interval for the intercept ranges from -1.00 to -0.45, indicating that when all predictors are zero, the expected value of sqr_point_pct is negative, which is not meaningful for this data context. The confidence interval for win_pct ranges from 1.31 to 2.30, suggesting a strong positive relationship, as winning percentage increases, the square root of points won is expected to increase. Since this interval does not contain zero, we can conclude that win_pct is a statistically significant predictor. for DivWinY the interval ranges from 0.08 to 0.19, indicating a positive effect on sqr_point_pct, and this interval also does not contain zero, confirming its significance. Lastly, the confidence interval for CS is between 0.0015 and 0.0039, suggesting a positive but minimal effect on the response variable, and this interval does not contain zero either, indicating that CS is also a significant predictor. Overall, the confidence intervals are relatively tight and do not contain zero for the significant predictors, reinforcing the reliability of the model's estimates. This suggests that we can be confident in the positive effects of win_pct, DivWinY, and CS on sqr_point_pct, as also indicated by their small p-values.
+
+# Question 2- Logistic Regression
+
+Part A- Plot the variable plyrMgr, which indicates if the manager was a player-manager or not, against year. Jitter the points in the vertical direction to facilitate visualisation. Comment on the graph. 
+```{r}
+# Plot plyrMgr against year with jitter
+ggplot(df_managers, aes(x = yearID, y = plyrMgr)) +
+  geom_jitter(height = 0.1, width = 0.2, alpha = 0.5) +
+  labs(title = "Player-Managers Over the Years",
+       x = "Year",
+       y = "Player-Manager Status") +
+  theme_minimal()
+```
+There is a clear decline in the frequency of player-managers over the years. Pre 1925 there was the greatest amount of players that were also managers. This trend shows a consistent decrease in the number of player managers as time progresses. This suggests a shift in the management structure of teams, with greater emphasis on specialised roles. A reason for this could be the increased professionalism in sports leading to more separate roles. Managers now focus on strategic decisions and team management, whereas players concentrate on their performance whilst playing. Furthermore, the physical demands have increased, making it harder for players to manage their own performance and their teams.
+
+Part B- Fit a logistic regression model ti plyrMgr as a function of year, report and interpret the results. Write out the form of the fitted model.
+```{r}
+logit_model <- glm(as.factor(plyrMgr) ~ yearID, family = "binomial", data = df_managers)
+logit_model
+```
+$$
+\text{logit}(p(\text{plyrMgr})) = 89 - 0.047 \times \text{yearID}
+$$
+
+This logistic regression model has been fitted to predict whether a manager was a player and manager based on the year. This shows significant results. The intercept is estimated at approximately 88.60, indicating a high baseline of being a player-manager in the reference year. The coefficient for yearID is approximately -0.0466, suggesting that for each year, the likelihood of a manager being a player-manager decreases by about 0.0466 , which implies a declining trend overall in player-managers over time. The models null deviance is 3442, while the residual deviance is 2128, indicating that the model explains a substantial portion of the variability in the response variable. This suggests that understanding these trends is crucial for teams in order to optimise their management structures. The AIC value of 2132 suggests the model is relatively good, however further comparisons with other models could provide more accurate insights into its adequacy. It is also important to understand that independence of observations is crucial because logistic regression assumes that the observations are independent from each other. Furthermore, linearity is important in logistic regression. This assumption states the log odds of the dependent variable should have a linear relationship with the independent variables. Overall, the results indicate that as time progresses, the likelihood of managers also being players has decreased, reflecting a shift in managerial roles in baseball, however it is also important to ensure the assumptions are met otherwise this can cause problems with the models reliability. 
+
+Part C- Check for overfitting using 80% to 20% split of training-testing data and the seed 123. Plot comparative ROC curves and summarise your findings.
+```{r}
+# Set seed as 123
+set.seed(123)
+
+# Split the data into training (80%) and testing (20%)
+train_indices <- sample(1:nrow(df_managers), size = 0.8 * nrow(df_managers))
+train_data <- df_managers[train_indices, ]
+test_data <- df_managers[-train_indices, ]
+
+# Fit the logistic regression model
+logit_model <- glm(as.factor(plyrMgr) ~ yearID, family = "binomial", data = train_data)
+
+# Predict probabilities on the training data
+prob_train <- predict(logit_model, newdata = train_data, type = "response")
+
+# Create ROC object for training data
+roc_train <- roc(response = train_data$plyrMgr, predictor = prob_train, auc = TRUE)
+
+# Predict probabilities on the testing data
+prob_test <- predict(logit_model, newdata = test_data, type = "response")
+
+# Create ROC curve for testing data
+roc_test <- roc(response = test_data$plyrMgr, predictor = prob_test, auc = TRUE)
+
+# Plot ROC curves for both training and testing data
+# Plot ROC curves for both training and testing data
+ggroc(roc_train) +
+  geom_abline(aes(intercept = 1, slope = 1), colour = "red") +
+  geom_line(data = data.frame(specificity = roc_test$specificities, sensitivity = roc_test$sensitivities), 
+            aes(x = specificity, y = sensitivity), colour = "blue") +
+  annotate(geom = "text", x = 0.25, y = 0.25, label = paste("AUC (Train) =", round(auc(roc_train), 3)), colour = "blue") +
+  annotate(geom = "text", x = 0.25, y = 0.20, label = paste("AUC (Test) =", round(auc(roc_test), 3)), colour = "blue")
+```
+The ROC curve helps us to understand if our model is a good model to use. The black line represents the training data and the blue line represents the testing data. Both of the lines are above the diagonal red line, which represents random guessing, so this indicates the model is performing better than random guessing for both training and testing data. The AUC value (Area Under the Curve) summaries the overall performance of the model, this ranges from 0 to 1. 1 indicates a strong model performance, whereas 0.5 represents random guessing may be more accurate. The AUC being 0.905 for the training data and 0.9 for the testing data indicates a strong model performance. These values suggest that the model has high validity. The AUC value for the training data being slightly higher than the testing data is accepted as it is only a small difference. This shows there isn't significant overfitting as the performance of unseen data is nearly as good as the data it was trained on. The close AUC values indicate that the model has generalised well from training to testing data. The use of an 80%-20% split and specific seed further supports the accuracy of this evaluation. 
+
+Part D- Find Youden's index for the training data and calculate confusion matrices at this cut off for both training and testing data. Comment on the quality of the model.
+```{r}
+# Calculate Youden's index for the training data
+youdens_index <- coords(roc_train, "b", best.method = "youden", transpose = TRUE)
+
+# Output Youden's index values
+print(youdens_index)
+
+# Calculate the sum of sensitivity and specificity
+sens_spec_sum <- youdens_index["sensitivity"] + youdens_index["specificity"]
+print(sens_spec_sum)
+
+# Create confusion matrix for training data
+threshold <- youdens_index["threshold"]  # Get the optimal threshold
+pred_train <- ifelse(prob_train > threshold, 1, 0)
+confusion_matrix_train <- table(Predicted = pred_train, Actual = train_data$plyrMgr)
+
+# Display confusion matrix
+confusion_matrix_train
+
+# Create confusion matrix for testing data
+pred_test <- ifelse(prob_test > threshold, 1, 0)
+confusion_matrix_test <- table(Predicted = pred_test, Actual = test_data$plyrMgr)
+
+# Display confusion matrix for testing data
+print(confusion_matrix_test)
+```
+The quality of the model can be assessed through the confusion matrix and thhe Youden's index. True positives refer to instances where the model correctly predicts the positive class, which in this case means accurately identifying managers who were player-managers. 
+
+The threshold of 0.1120142 indicates the cutoff point for classifying predicted probabilities into binary outcomes. The high sensitivity of 0.9561905 suggests that the model is very effective at identifying true positive cases, correctly predicting approximately 95.6% of actual player-managers. However, the specificity of 0.7530135 indicates that about 75.3% of actual negative cases were correctly identified, which is lower than the sensitivity. This discrepancy suggests that while the model is great for detecting positive cases, it misclassifies a significant number of negative cases, as shown by the confusion matric showing 611 false negatives.
+
+The confusion matrix is a valuable tool for evaluating the performance of the model, as it summarises the count of true positives, true negatives, false positives, and false negatives, allowing for a comprehensive assessment of classification accuracy. Youden's index, calculated as the sum of sensitivity and specificity, provides a single metric to evaluate the model's performance ay the chosen threshold, which in this case is 1.709222. This indicates a goof overall performance, but the presence of false negatives raises concerns about the models reliability.
+
+Part E- Using the previous results and same cut off in part d, calculate the sum sensitivity+ specificity on the testing data as a function of IgID. Comment on the result.
+```{r} 
+# Calculate predictions for the testing data
+pred_test <- ifelse(prob_test > 0.1120142 , 1, 0)
+
+# Create a data frame with actual and predicted values along with lgID
+test_results <- data.frame(
+  Actual = test_data$plyrMgr,
+  Predicted = pred_test,
+  lgID = test_data$lgID
+)
+
+# Function to calculate sensitivity and specificity
+calc_sens_spec <- function(data) {
+  cm <- table(Predicted = data$Predicted, Actual = data$Actual)
+  sensitivity <- cm[2, 2] / (cm[2, 2] + cm[1, 2])
+  specificity <- cm[1, 1] / (cm[1, 1] + cm[2, 1])
+  return(sensitivity + specificity)
+}
+
+# Calculate sensitivity + specificity for each lgID
+sens_spec_by_lgID <- test_results %>%
+  group_by(lgID) %>%
+  summarise(SensSpecSum = calc_sens_spec(.))
+
+# Plot the results as a bar chart
+ggplot(sens_spec_by_lgID, aes(x = lgID, y = SensSpecSum)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  scale_y_continuous(limits = c(0, max(sens_spec_by_lgID$SensSpecSum) * 1.2)) +  
+  labs(title = "Sum of Sensitivity and Specificity by lgID",
+       x = "League ID",
+       y = "Sensitivity + Specificity") +
+  theme_minimal() 
+```
+This bar chart visualises the performance of the model across different leagues (lgID) by displaying the sum of sensitivity and specificity. Unfortunately, I don't think this has been calculated correctly as the bars don't have any variation. The bar heights, however, should indicate the differences in the overall efficiency. The higher the sum of sensitivity and specificity the more accurate the model is within these leagues. Conversely, with lower values this would indicate lower performance and imply potential challenges in prediction accuracy.  To improve model performance, its crucial to analyse the underlying factors contributing to any differences, such as data quality, model complexity and league-specific patterns. Refinements in the model can be valuable in enhancing the models accuracy and reliability.
+
+Part F- Add the variables "win_pct" to the model you created in b. Compare this and the previous model. Which model should we prefer and why?
+```{r}
+# Ensuring that year variable is correctly formatted and doesn't generate any warnings
+df_managers$year <- as.numeric(df_managers$year)
+
+# Add the variable "win_pct" to the logistic regression model
+logit_model_with_win_pct <- glm(as.factor(plyrMgr) ~ year + win_pct, family = "binomial", data = df_managers)
+
+# Summarise the new model
+summary(logit_model_with_win_pct)
+
+```
+The second model has a slightly lower residual deviance value (2127.6) compared to the first model (2128), indicating a marginally better fit to the data. However, this difference is very minimal. The AIC value for model 2 is 2133.6, which is slightly higher than the first models AIC of 2132. A lower AIC is generally preferred. In model 2, the coefficient for win_pct is 0.050095 with a high p-value of 0.898 (significantly above the threshold of 0.05) therefor suggesting that win_pct is not a significant predictor of a player also being a manager. Given the minimal improvement in the residual deviance and the lack of statistical significance for the win_pct variable, Model 1 should be preferred. Model 1 is more simple and achieves a similar fit without the unnecessary complexity adding the win_pct variable brings.
+
+# Question 3: Poisson Regression
+
+Part A- Create a dataset ‘df_pitchers’ from the dataset Pitchers
+```{r}
+df_pitchers <- Pitching %>%
+  filter(BFP > 0) %>%  # i. Filter for pitchers who faced at least 1 batter
+  mutate(innings = IPouts / 3) %>%  # ii. Add innings variable
+  left_join(People %>% select(playerID, weight, height, throws), by = "playerID") %>%  # iii. Add variables from People dataset
+  drop_na()  # iv. Remove incomplete cases
+```
+Part B- Plot a histogram of the number of shutouts (games pitched with no runs by the opposing team). Why would a Poisson model be appropriate for such data?
+```{r}
+# Using df_pitchers I just created
+ggplot(df_pitchers, aes(x = SH)) +  # SH represents shutouts
+  geom_histogram(binwidth = 1, fill = "blue", color = "black") +
+  labs(title = "Number of Shutouts", x = "Number of Shutouts", y = "Frequency") +
+  theme_minimal()
+```
+The histogram reveals that the number of shutouts is not evenly distributed, as the data lacks symmetry and features a long tail extending to the right. This suggests that there are a few seasons with significantly more shutouts than usual, deviating from a normal distribution but aligning well with a Poisson distribution. A Poisson distribution is a statistical model used to predict the frequency of specific events, such as shutouts, within a given timeframe. It relies on a single parameter, λ, which represents the average number of events anticipated. The number of shutouts in a baseball season fits a Poisson model perfectly because they are counted events, meaning we can tally the shutouts in a season, they are independent, as one shutout does not influence the probability of another occurring, and the average rate is stable, with the average number of shutouts per season remaining relatively consistent.
+
+Part C- Plot a graph of the number of shutouts as a function of innings pitched. Colour the points by the hand the pitcher throws with. Jitter the data on the vertical axis to improve readability. Comment on the graph.
+```{r}
+# Count the number of each throwing hand as it appears there aren't any switch's
+df_pitchers %>%
+  group_by(throws) %>%
+  summarise(count = n())
+
+ggplot(df_pitchers, aes(x = innings, y = SH, color = throws)) +  # SH represents shutouts
+  geom_jitter() +  # Jitter the data for better visibility
+  labs(title = "Shutouts as a Function of Innings Pitched",
+       x = "Innings Pitched",
+       y = "Number of Shutouts",
+       color = "Throwing Hand") +
+    scale_color_manual(values = c("L" = "blue", "R" = "red", "S" = "green"), 
+                     labels = c("L" = "Left", "R" = "Right", "S" = "Switch")) +
+  theme_minimal()
+```
+The scatterplot reveals a positive relationship between innings pitched and shutouts, indicating that more innings generally leads to more shutouts. One of the assumptions that needs to be met is lineraity However, this relationship is not fully linear, the rate of increase in shoutouts decreases with more innings. The data also suggests a difference between rates between left-handed and right-handed pitchers, with left-handers potentially performing better. While the poisson distribution might be considered for modelling shutout counts, the independence assumption required for Poisson may not fully hold in this context.
+
+Part D- Create a multiple Poisson model, poisson_mod1, of shutouts as a function of innings, weight, height,and throws. Report and interpret the results. Find the p-value for each of the four predictors using analysis of variance. Interpret the results and mathematically explain what is meant by the p-value associated to each predictor.  
+```{r}
+poisson_mod1 <- glm(SH ~ innings + weight + height + throws, 
+                    family = poisson(link = "log"), 
+                    data = df_pitchers)
+
+# Summary of the model
+summary(poisson_mod1)
+
+# Analysis of variance to find p-values for each predictor
+anova_results <- anova(poisson_mod1, test = "Chisq")
+anova_results
+```
+The model's coefficients indicate the expected change in the log count of shutouts for a one-unit increase in each predictor, while in the intercept represents the expected log count when all predictors are at their reference levels. The analysis of variance (ANOVA) is used to find the p-values for each of the four predictors, which are crucial for determining the significance of each variable in the model. A low p-value (less than 0.05) suggests strong evidence against the null hypothesis, indicating that the predictor has a statistically significant effect on the response variable. For instance, the p-value for innings is extremely low (2.2e-16 ), which implies that innings pitched significantly increases the expected number of shutouts. This is further supported by the model output, where the coefficient for innings is estimated at 0.01042, indicating that each additional inning pitched, the log count of shutouts increases by approximately 0.01042.
+
+In contrast, the p-value for the variable throwsS is 0.05592, which is slightly above the threshold of 0.05, suggests that there is less confidence in its effect on shutouts. The p-value therefore serves as a measure of the strength of evidence against the null hypothesis for each predictor, helping to identify which variables are important in explaining the variability in shutouts. The analysis of deviance table further illustrates the significance of each predictor, with all predictors showing a p-value of less than 2.2e-16, indicating that they contribute significantly to the model.
+
+Part E- Now create a new model poisson_mod2, in which teamID should be added as a random effect. Ensure the code generates no warnings. Write out the form for the fitted model (rounded to 2sf). From the results, does teamID appear to be an important predictor? Why or why not?
+```{r}
+# Fit the Poisson regression model with teamID as a random effect 
+poisson_mod2 <- glmer(SHO ~ innings + weight + height + throws + (1 | teamID), 
+                      data = df_pitchers, 
+                      family = poisson,
+                      nAGQ = 0)  
+
+# Summarise the model to view the results
+summary(poisson_mod2)  
+```
+
+$$
+\begin{align}
+\mbox{SHO} \sim  N( &-7.1 + U +  0.021\times {\rm innings} \\ 
+&-0.0090\times{\rm weight} + 
+                         0.061 \times {\rm height} \\
+& -0.12 \times {\rm throwsR}
+& -9.2 \times {\rm throwsS}
+\end{align}
+$$
+This model provides some insights into if teamID is an important predictor. The variance for the random effect for team ID is 0.04887 with a standard deviation of 0.22113, indicating there is some variability in the number of shutouts that can be attributed to the differences between teams, but this variance is relatively minor. The fixed effects in the model, inings, weight, height and throwsR, have very significant p-values as they are less than 0.05. However, for throwsS this is 0.961 which is seen to be a high p-value as it is significantly larger than 0.05. This suggests that throwsS is not statistically significant in predicting the number of shutouts. The data does not provide strong evidence to conclude that the hand a pitcher throws with, in particularly switched-hand pitchers, has meaningful impact on the number of shutouts they achieve. Unlike fixed effects, the random effect for teamID does not have a direct p-value, instead it's evaluated through its variance component. The small variance for teamID indicates that while there is some team-level variation, it may not be significant enough to consider teamID a major predictor compared to the fixed effects. The prominence of the fixed effects and the relatively low variance of the random effect suggest that individual player characteristics and performance metrics are more influential in predicting shutouts than the team they belong to. In summary, although teamID does seem to contribute some variability, it does not seem to be a crucial predictor in this model compared to the fixed effects.
+
+Part F- Produce a scale-location plot for poisson_mod1
+```{r}
+plot(poisson_mod1, which = 3)
+```
+From looking at the Scale- Location plot, the nearly flat red line is a promising indication that the variance of residuals is relatively constant across the range of predicted values. This suggests that the Poisson model is fitting the data well, without significant heteroskedasticity, meaning the residuals don't show a pattern of increasing or decreasing spread. The points, representing the square root of standardised residuals are often evenly distributed around the red line, supporting the assumption of homoscedasticity. The residuals should be randomly distributed around zero, to indicate that the model has captured the data well. This scale location plot does show this.However, there is a subtle pattern or clustering in the residuals, particularly around specific predicted values, which might indicate minor issues with the model, such as some factors not fully capturing the variability in the data. Additionally, a few points lie noticeably away from the bulk of the data, suggesting potential outliers that could be influential and may require further investigation. Outliers can disproportionately influence the model's estimates and predictions.Overall, the plot suggests that the Poisson model is generally appropriate, but further exploration of the data could help ensure that all patterns are adequately accounted for.
+
+Part G- Using poisson_mod1, how many more shutouts do left handed pitchers pitch, on average, than right handed pitchers? All other factors being equal, do taller or shorter players pitch more shutouts? Heavier or lighter? Explain why. 
+```{r}
+# Predict the number of shutouts for left-handed pitchers
+left_hand_pred <- predict(poisson_mod1, newdata = data.frame(
+  innings = mean(df_pitchers$innings),
+  weight = mean(df_pitchers$weight),
+  height = mean(df_pitchers$height),
+  throws = "L"
+), type = "response")
+
+# Predict the number of shutouts for right-handed pitchers
+right_hand_pred <- predict(poisson_mod1, newdata = data.frame(
+  innings = mean(df_pitchers$innings),
+  weight = mean(df_pitchers$weight),
+  height = mean(df_pitchers$height),
+  throws = "R"
+), type = "response")
+
+# Calculate the ratio of shutouts between left-handed and right-handed pitchers
+shutout_ratio <- left_hand_pred / right_hand_pred
+
+# Output the result
+cat("Left-handed pitchers pitch", shutout_ratio, "times more shutouts than right-handed pitchers on average.\n")
+
+# Analyse the effect of height and weight
+coef_height <- coef(poisson_mod1)["height"]
+coef_weight <- coef(poisson_mod1)["weight"]
+
+# Positive coefficient tells us there is an increase, whereas negative tells us there's a decrease
+if (coef_height > 0) {
+  cat("Taller players pitch more shutouts on average.\n")
+} else {
+  cat("Shorter players pitch more shutouts on average.\n")
+}
+
+if (coef_weight > 0) {
+  cat("Heavier players pitch more shutouts on average.\n")
+} else {
+  cat("Lighter players pitch more shutouts on average.\n")
+}
+```
+This output indicates that left handed pitchers, pitch approximately 1.1x more shutouts than right handed pitchers on average. This suggests a slight advantage for left-handed pitchers. Additionally, the model indicates that taller players tend to pitch more shutouts on average. This could be due to their physical advantages due to being taller, such as having a longer reach. Furthermore, the analysis shows that lighter players pitch more shutouts on average. This could be explained by the possibility that lighter players could be more physically fit, allowing them to maintain performance over longer periods. 
