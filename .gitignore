@@ -1,0 +1,28 @@
+# R history and workspace
+.Rhistory
+.RData
+.Ruserdata
+
+# RStudio
+.Rproj.user/
+*.Rproj
+
+# R Markdown / knitr generated files
+*_cache/
+*_files/
+figure/
+figures/
+
+# Rendered outputs
+*.html
+*.utf8.md
+*.knit.md
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# macOS
+.DS_Store
+._*
